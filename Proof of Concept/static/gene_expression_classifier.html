@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ML Classifier POC</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f4f7f9;
+        }
+        .container-poc {
+            max-width: 900px;
+        }
+        textarea {
+        white-space: nowrap !important;
+        overflow-x: auto !important;
+        word-break: keep-all !important;
+        }
+        .input-area {
+            min-height: 200px;
+        }
+        .result-card {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+        }
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container-poc mx-auto p-4 md:p-8">
+    <header class="text-center mb-8">
+        <h1 class="text-3xl font-extrabold text-blue-800">Gene Subtype Classifier Prototype</h1>
+        <p class="text-gray-600 mt-2">Simulated inference for SVM, GA-SVM, and gcForest models.</p>
+    </header>
+
+    <div class="bg-white p-6 rounded-xl result-card mb-8">
+        <h2 class="text-xl font-semibold text-gray-700 mb-4 border-b pb-2">Input Gene Expression Data</h2>
+        
+        <p class="text-sm text-red-600 mb-3">
+            <span class="font-bold">NOTE:</span> This model requires exactly 409 features. Input 409 comma-separated (CSV) numerical values below.
+        </p>
+        
+        <textarea id="geneInput" class="input-area w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm" placeholder="e.g., 0.52, -1.21, 0.98, ..., (409 values total)"></textarea>
+
+        <div class="mt-4 flex flex-col md:flex-row md:justify-between items-center">
+            <button id="classifyButton" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg transition duration-150 ease-in-out shadow-md disabled:opacity-50" onclick="classifySample()">
+                <span id="buttonText">Classify Sample</span>
+                <div id="loadingIndicator" class="loading-spinner hidden"></div>
+            </button>
+            <button class="text-sm text-blue-500 hover:text-blue-700 mt-3 md:mt-0" onclick="loadMockData()">
+                Load Mock 409 Values
+            </button>
+        </div>
+
+        <div id="inputError" class="text-red-500 mt-3 hidden"></div>
+    </div>
+
+    <!-- Results Display Area -->
+    <div id="resultsContainer" class="bg-white p-6 rounded-xl result-card">
+        <h2 class="text-xl font-semibold text-gray-700 mb-4 border-b pb-2">Classification Results</h2>
+        <div id="resultOutput" class="text-gray-800 whitespace-pre-wrap">
+            Awaiting input...
+        </div>
+        <div id="citationArea" class="mt-4 pt-4 border-t border-gray-200 text-xs text-gray-500 hidden">
+            <p class="font-semibold mb-1">Grounding Sources:</p>
+            <ul id="sourcesList" class="list-disc pl-5"></ul>
+        </div>
+    </div>
+</div>
+
+<script>
+
+    // DOM references
+    const inputEl = document.getElementById('geneInput');
+    const classifyBtn = document.getElementById('classifyButton');
+    const loadingEl = document.getElementById('loadingIndicator');
+    const buttonTextEl = document.getElementById('buttonText');
+    const errorEl = document.getElementById('inputError');
+    const outputEl = document.getElementById('resultOutput');
+    
+
+    // Global Configuration
+    const NUM_FEATURES = 409;
+
+    function loadMockData() {
+        // Generate a mock array of 409 random, scaled numerical values
+        const mockData = Array.from({ length: NUM_FEATURES }, () => (Math.random() * 4 - 2).toFixed(4));
+        inputEl.value = mockData.join(', ');
+        errorEl.classList.add('hidden');
+    }
+
+    function showLoading(isLoading) {
+        classifyBtn.disabled = isLoading;
+        buttonTextEl.textContent = isLoading ? 'Classifying...' : 'Classify Sample';
+        loadingEl.classList.toggle('hidden', !isLoading);
+        classifyBtn.classList.toggle('flex', isLoading);
+        classifyBtn.classList.toggle('items-center', isLoading);
+        classifyBtn.classList.toggle('justify-center', isLoading);
+        outputEl.innerHTML = isLoading ? '<div class="flex items-center space-x-2 text-blue-600"><div class="loading-spinner"></div><span>Running model inference...</span></div>'
+    : 'Awaiting input...';
+        
+    }
+
+    async function classifySample() {
+    const rawInput = inputEl.value.trim();
+    const cleaned = rawInput
+        .replace(/\n/g, ' ')    // remove newlines
+        .replace(/\r/g, ' ')    // remove carriage returns
+        .replace(/\s+/g, ' ');  // collapse multiple spaces
+
+    const features = cleaned
+        .split(',')
+        .map(s => s.trim())
+        .filter(s => s !== '')
+        .map(Number);
+
+    console.log("Raw length:", rawInput.length);
+    console.log("Parsed count:", features.length);
+    console.log("Raw text:", rawInput);
+    if (features.length !== NUM_FEATURES || features.some(isNaN)) {
+        errorEl.textContent = `Input must contain exactly ${NUM_FEATURES} numerical values. Found ${features.length}.`;
+        errorEl.classList.remove('hidden');
+        outputEl.textContent = 'Awaiting input...';
+        return;
+    }
+
+    errorEl.classList.add('hidden');
+    showLoading(true);
+
+    try {
+        const response = await fetch("http://127.0.0.1:5000/predict", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ features })
+        });
+
+        const result = await response.json();
+        showLoading(false);
+
+        if (result.error) {
+            outputEl.textContent = "Server Error: " + result.error;
+            return;
+        }
+
+        // Render results
+        outputEl.innerHTML = `
+        <table class="table-auto w-full text-sm">
+            <thead>
+                <tr class="bg-gray-200">
+                    <th class="px-3 py-2">Model</th>
+                    <th class="px-3 py-2">Predicted Subtype</th>
+                    <th class="px-3 py-2">Confidence</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="px-3 py-2">Grid-SVM</td>
+                    <td class="px-3 py-2">${result.GridSVM.prediction}</td>
+                    <td class="px-3 py-2">${(result.GridSVM.confidence * 100).toFixed(2)}%</td>
+                </tr>
+                <tr>
+                    <td class="px-3 py-2">GA-SVM</td>
+                    <td class="px-3 py-2">${result.GASVM.prediction}</td>
+                    <td class="px-3 py-2">${(result.GASVM.confidence * 100).toFixed(2)}%</td>
+                </tr>
+                <tr>
+                    <td class="px-3 py-2">gcForest</td>
+                    <td class="px-3 py-2">${result.gcForest.prediction}</td>
+                    <td class="px-3 py-2">${(result.gcForest.confidence * 100).toFixed(2)}%</td>
+                </tr>
+            </tbody>
+        </table>
+        `;
+    }
+    catch (err) {
+        console.error(err);
+        showLoading(false);
+        outputEl.textContent = "Could not reach backend server.";
+    }
+}
+
+</script>
+
+</body>
+</html>

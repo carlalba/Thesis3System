@@ -1,0 +1,5 @@
+Global PCA summary
+Training shape: (464, 409)
+Explained variance target: 0.99
+Retained components: 283
+Explained variance retained: 99.005931
